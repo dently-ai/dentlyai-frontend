@@ -34,41 +34,32 @@ interface IPixiJsAppProps {
     pixiHandler: (pixi: Application<ICanvas>) => void;
 }
 
-function renderGrid(options?: IGridOptions | undefined): Graphics
-{
-    var graphics = new Graphics();
-
-    // Rectangle
-    graphics.beginFill(0xDE3249);
-    graphics.drawRect(50, 50, 100, 100);
-    graphics.endFill();
-
-    //graphics.drawLine
-
-    return graphics;
-}
-
 export class PixiJsMiniEditor extends React.PureComponent<IPixiJsAppProps> {
     pixiApp: Application<ICanvas> | undefined;
     canvas: HTMLCanvasElement | undefined;
+    isCanvasInitiated: boolean = false;
 
     public async componentDidMount(): Promise<void> {
-        // The application will create a renderer using WebGL, if possible,
-        // with a fallback to a canvas render. It will also setup the ticker
-        // and the root stage PIXI.Container
-        this.pixiApp = new Application({
-            view: this.canvas,
-            antialias: true,
-        });
-        
-        
-        const { pixiApp } = this;
-        const { renderer, stage } = pixiApp;
+        if (!this.isCanvasInitiated) {
+            const { pixiHandler } = this.props;
+            // The application will create a renderer using WebGL, if possible,
+            // with a fallback to a canvas render. It will also setup the ticker
+            // and the root stage PIXI.Container
+            this.pixiApp = new Application({
+                view: this.canvas,
+                antialias: true,
+            });
+            
+            
+            const { pixiApp } = this;
+            const { renderer, stage } = pixiApp;
 
-        renderer.resize(400, 400);
+            renderer.resize(400, 400);
 
-        const { pixiHandler } = this.props;
-        pixiHandler(pixiApp);
+            pixiHandler(pixiApp);
+
+            this.isCanvasInitiated = true;
+        }
     }
 
     public render() {

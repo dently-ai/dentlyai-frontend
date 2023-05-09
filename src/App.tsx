@@ -13,6 +13,7 @@ import { strict } from 'assert';
 import { Viewport } from 'pixi-viewport';
 import dots from "./TempData/0.jpg.json";
 import jsPDF from 'jspdf';
+import axios from 'axios';
 
 const dotLabels = {
   "A": "A",
@@ -51,10 +52,10 @@ function subtract(main: Point, other: Point): Point {
   return outPoint;
 }
 
-const fileName = "data/xrays/0.jpg";
-const jsonName = "data/json/0.jpg.json";
-
 type LoadingStateType = "Loading" | "Loaded" | "ToLoad" | "None";
+
+var bootstrapImageInstance: () => Promise<void>;
+var bootstrapViewportInstance: () => Promise<void>;
 
 var editor: Application<ICanvas>;
 var miniEditor: Application<ICanvas>;
@@ -227,259 +228,264 @@ var dotViewportContainer: DotsMap = {
 };
 
 function App() {
+  async function bootstrapImage(data: ICreateReportResponse) {
+    return async () => {
+      const { dots, url, } = data;
 
+      var texture = await Texture.fromURL(url);
+      sprite = new Sprite(texture);
+      sprite.anchor.set(0.5);
+      sprite.x = editor.view.width / 2;
+      sprite.y = editor.view.height / 2;
+      sprite.height = editor.view.height;
+      sprite.width = editor.view.width;
 
-  async function bootstrapImage() {
+      sprite.filters = [brightnessFilter, contrastFilter];
 
-    var texture = await Texture.from(fileName);
-    sprite = new Sprite(texture);
-    sprite.anchor.set(0.5);
-    sprite.x = editor.view.width / 2;
-    sprite.y = editor.view.height / 2;
-    sprite.height = editor.view.height;
-    sprite.width = editor.view.width;
+      editor.stage.addChildAt(sprite, 0);
 
-    sprite.filters = [brightnessFilter, contrastFilter];
-
-    editor.stage.addChildAt(sprite, 0);
-
-    (Object.keys(dots) as (keyof typeof dots)[]).forEach((key, index) => {
-      var dotsGraphics = dotContainer[key];
-
-      // Set the fill style and draw the dot
-
-      dotsGraphics.beginFill(0xF8008A);
-      dotsGraphics.drawCircle(0, 0, 6);
-      dotsGraphics.endFill();
-
-      // Create a new Text object for the label
-      dotsLabels = new Text(dotLabels[key], {
-        fontSize: 14,
-        fill: 0xF8008A,
-      });
-
-      // Set the position of the label
-      dotsLabels.anchor.set(0.5);
-      dotsLabels.position.set(0, - 15);
-      dotsGraphics.position.set(dots[key].x * 0.8, dots[key].y * 0.8);
-
-      dotsGraphics.interactive = true;
-
-      const onDragStart = (event: FederatedPointerEvent) => {
-        dotsGraphics.alpha = 0.5;
-        dotViewportContainer[key].alpha = 0.5;
-        dragStartPos = event.data.global.clone();
-        dragStartObjPos = dotsGraphics.position.clone();
-
-        currentlyDragging = key;
-        dragging = true;
-      }
-
-      const onDragEnd = (event: FederatedPointerEvent) => {
-        dragging = false;
-        dotsGraphics.alpha = 1;
-        dotViewportContainer[key].alpha = 1;
-      }
-
-
-      dotsGraphics.on('pointerdown', onDragStart)
-        .on('pointerup', onDragEnd)
-        .on('pointerupoutside', onDragEnd);
-
-
-      // Add the Container object to the stage
-      dotsGraphics.addChild(dotsLabels);
-      editor.stage.addChild(dotsGraphics);
-    });
-
-    editor.stage.addChild(calibrationDots.dot1);
-    editor.stage.addChild(calibrationDots.dot2);
-    editor.stage.addChild(calibrationDots.line);
-    editor.stage.addChild(angleText);
-
-    const onDragMove = (event: FederatedPointerEvent) => {
-      if (dragging) {
-        const newPos = event.data.global.clone();
-        const delta = subtract(newPos, dragStartPos);
-        dotContainer[currentlyDragging].position.set(dragStartObjPos.x + delta.x, dragStartObjPos.y + delta.y);
-        dotViewportContainer[currentlyDragging].position.set((dragStartObjPos.x + delta.x) * 1 / 0.8 - miniSprite.width / 2, (dragStartObjPos.y + delta.y) * 1 / 0.8 - miniSprite.height / 2);
-      }
-    }
-
-    editor.stage.on('pointermove', onDragMove);
-
-    function onClick(event: FederatedPointerEvent): void {
-      event.stopImmediatePropagation();
-      if (isCalibrating) {
-        var dot: Graphics;
-
-        const ratio = miniSprite.width / editor.renderer.width;
-        const { x, y, } = event.global;
-
-        if (calibrationDots.toggle) {
-          const { dot1, dot2, line, dot1Viewport, dot2Viewport, lineViewport, } = calibrationDots;
-
-          dot = dot1;
-
-          dot1.clear();
-          dot2.clear();
-          line.clear();
-          dot1Viewport.clear();
-          dot2Viewport.clear();
-          lineViewport.clear();
-
-          // Set the fill style and draw the dot
-          dot1.beginFill(0xF8008A);
-          dot1.drawCircle(0, 0, 4);
-          dot1.endFill();
-
-          dot1.position.x = x;
-          dot1.position.y = y;
-
-          // VIEWPORT
-          dot1Viewport.beginFill(0xF8008A);
-          dot1Viewport.drawCircle(0, 0, 4);
-          dot1Viewport.endFill();
-
-          dot1Viewport.position.x = x * ratio - miniSprite.width / 2;
-          dot1Viewport.position.y = y * ratio - miniSprite.height / 2;
-
-          // 
-          calibrationDots.toggle = false;
-        } else {
-          const { dot1, dot2, line, dot1Viewport, dot2Viewport, lineViewport, } = calibrationDots;
-
-          dot = dot2;
-
-          dot2.clear();
-
-          // Set the fill style and draw the dot
-          dot2.beginFill(0xF8008A);
-          dot2.drawCircle(0, 0, 4);
-          dot2.endFill();
-
-          dot2.position.x = event.global.x;
-          dot2.position.y = event.global.y;
-
-          // Set the line style and draw the horizontal line
-          line.lineStyle(2, 0xA020F0);
-          line.moveTo(dot1.position.x, dot1.position.y);
-          line.lineTo(dot2.position.x, dot2.position.y);
-
-          // VIEWPORT
-          dot2Viewport.beginFill(0xF8008A);
-          dot2Viewport.drawCircle(0, 0, 4);
-          dot2Viewport.endFill();
-
-          dot2Viewport.position.x = x * ratio - miniSprite.width / 2;
-          dot2Viewport.position.y = y * ratio - miniSprite.height / 2;
-
-          lineViewport.lineStyle(2, 0xA020F0);
-          lineViewport.moveTo(dot1Viewport.position.x, dot1Viewport.position.y);
-          lineViewport.lineTo(dot2Viewport.position.x, dot2Viewport.position.y);
-
-          calibrationDots.toggle = true;
-        }
-      }
-    }
-
-    editor.stage.on("click", onClick);
-  }
-
-  function bootstrapViewport() {
-    var texture = Texture.from(fileName, {}, true);
-    viewport = new Viewport({
-      screenWidth: 400,
-      screenHeight: 400,
-      worldWidth: texture.width,
-      worldHeight: texture.height,
-
-      events: miniEditor.renderer.events
-    });
-
-    miniSprite = new Sprite(texture);
-    miniSprite.anchor.set(0.5);
-
-    viewport.center = new Point(miniSprite.width / 2, miniSprite.height / 2);
-
-    viewport.zoomPercent(zoom);
-
-    viewport.addChild(miniSprite);
-
-    miniEditor.stage.addChild(viewport);
-
-    setTimeout(() => {
       (Object.keys(dots) as (keyof typeof dots)[]).forEach((key, index) => {
-        var dotsGraphics: Graphics = dotViewportContainer[key];
-
-        const x = dots[key].x - miniSprite.width / 2;
-        const y = dots[key].y - miniSprite.height / 2;
+        var dotsGraphics = dotContainer[key];
 
         // Set the fill style and draw the dot
+
         dotsGraphics.beginFill(0xF8008A);
-        dotsGraphics.drawCircle(0, 0, 4);
+        dotsGraphics.drawCircle(0, 0, 6);
         dotsGraphics.endFill();
 
         // Create a new Text object for the label
         dotsLabels = new Text(dotLabels[key], {
           fontSize: 14,
-          fill: 0xF8008A
+          fill: 0xF8008A,
         });
 
         // Set the position of the label
         dotsLabels.anchor.set(0.5);
         dotsLabels.position.set(0, - 15);
+        dotsGraphics.position.set(dots[key].x, dots[key].y);
 
-        dotsGraphics.position.set(x, y);
+        dotsGraphics.interactive = true;
 
-        dotsGraphics.addChild(dotsLabels);
+        const onDragStart = (event: FederatedPointerEvent) => {
+          dotsGraphics.alpha = 0.5;
+          dotViewportContainer[key].alpha = 0.5;
+          dragStartPos = event.data.global.clone();
+          dragStartObjPos = dotsGraphics.position.clone();
+
+          currentlyDragging = key;
+          dragging = true;
+        }
+
+        const onDragEnd = (event: FederatedPointerEvent) => {
+          dragging = false;
+          dotsGraphics.alpha = 1;
+          dotViewportContainer[key].alpha = 1;
+        }
+
+
+        dotsGraphics.on('pointerdown', onDragStart)
+          .on('pointerup', onDragEnd)
+          .on('pointerupoutside', onDragEnd);
 
         // Add the Container object to the stage
-        miniSprite.addChild(dotsGraphics);
-
-        dotViewportContainer[key] = dotsGraphics;
+        dotsGraphics.addChild(dotsLabels);
+        editor.stage.addChild(dotsGraphics);
       });
 
-      (Object.keys(analysisLines) as (keyof typeof analysisLines)[]).forEach((key, index) => {
-        var lineMain: Graphics = analysisLines[key][0] as Graphics;
-        var lineViewport: Graphics = analysisLines[key][1] as Graphics;
+      editor.stage.addChild(calibrationDots.dot1);
+      editor.stage.addChild(calibrationDots.dot2);
+      editor.stage.addChild(calibrationDots.line);
+      editor.stage.addChild(angleText);
 
-        editor.stage.addChild(lineMain);
-        miniSprite.addChild(lineViewport);
+      const onDragMove = (event: FederatedPointerEvent) => {
+        if (dragging) {
+          const newPos = event.data.global.clone();
+          const delta = subtract(newPos, dragStartPos);
+          dotContainer[currentlyDragging].position.set(dragStartObjPos.x + delta.x, dragStartObjPos.y + delta.y);
+          dotViewportContainer[currentlyDragging].position.set((dragStartObjPos.x + delta.x) * texture.width / editor.view.width - miniSprite.width / 2, (dragStartObjPos.y + delta.y) *  texture.height / editor.view.height - miniSprite.height / 2);
+        }
+      }
+
+      editor.stage.on('pointermove', onDragMove);
+
+      function onClick(event: FederatedPointerEvent): void {
+        event.stopImmediatePropagation();
+        if (isCalibrating) {
+          var dot: Graphics;
+
+          const ratio = miniSprite.width / editor.renderer.width;
+          const { x, y, } = event.global;
+
+          if (calibrationDots.toggle) {
+            const { dot1, dot2, line, dot1Viewport, dot2Viewport, lineViewport, } = calibrationDots;
+
+            dot = dot1;
+
+            dot1.clear();
+            dot2.clear();
+            line.clear();
+            dot1Viewport.clear();
+            dot2Viewport.clear();
+            lineViewport.clear();
+
+            // Set the fill style and draw the dot
+            dot1.beginFill(0xF8008A);
+            dot1.drawCircle(0, 0, 4);
+            dot1.endFill();
+
+            dot1.position.x = x;
+            dot1.position.y = y;
+
+            // VIEWPORT
+            dot1Viewport.beginFill(0xF8008A);
+            dot1Viewport.drawCircle(0, 0, 4);
+            dot1Viewport.endFill();
+
+            dot1Viewport.position.x = x * ratio - miniSprite.width / 2;
+            dot1Viewport.position.y = y * ratio - miniSprite.height / 2;
+
+            // 
+            calibrationDots.toggle = false;
+          } else {
+            const { dot1, dot2, line, dot1Viewport, dot2Viewport, lineViewport, } = calibrationDots;
+
+            dot = dot2;
+
+            dot2.clear();
+
+            // Set the fill style and draw the dot
+            dot2.beginFill(0xF8008A);
+            dot2.drawCircle(0, 0, 4);
+            dot2.endFill();
+
+            dot2.position.x = event.global.x;
+            dot2.position.y = event.global.y;
+
+            // Set the line style and draw the horizontal line
+            line.lineStyle(2, 0xA020F0);
+            line.moveTo(dot1.position.x, dot1.position.y);
+            line.lineTo(dot2.position.x, dot2.position.y);
+
+            // VIEWPORT
+            dot2Viewport.beginFill(0xF8008A);
+            dot2Viewport.drawCircle(0, 0, 4);
+            dot2Viewport.endFill();
+
+            dot2Viewport.position.x = x * ratio - miniSprite.width / 2;
+            dot2Viewport.position.y = y * ratio - miniSprite.height / 2;
+
+            lineViewport.lineStyle(2, 0xA020F0);
+            lineViewport.moveTo(dot1Viewport.position.x, dot1Viewport.position.y);
+            lineViewport.lineTo(dot2Viewport.position.x, dot2Viewport.position.y);
+
+            calibrationDots.toggle = true;
+          }
+        }
+      }
+
+      editor.stage.on("click", onClick);
+    };
+  }
+
+  async function bootstrapViewport(data: ICreateReportResponse) {
+    return async () => {
+      const { url, dots, } = data;
+
+      var texture = await Texture.fromURL(url);
+      viewport = new Viewport({
+        screenWidth: 400,
+        screenHeight: 400,
+        worldWidth: texture.width,
+        worldHeight: texture.height,
+
+        events: miniEditor.renderer.events
       });
-    }, 300);
 
-    // Create a new Graphics object
-    const graphics = new Graphics();
+      miniSprite = new Sprite(texture);
+      miniSprite.anchor.set(0.5);
 
-    // Set the line style and draw the horizontal line
-    graphics.lineStyle(2, 0xA020F0);
-    graphics.moveTo(180, miniEditor.renderer.screen.height / 2);
-    graphics.lineTo(miniEditor.renderer.screen.width - 180, miniEditor.renderer.screen.height / 2);
+      viewport.center = new Point(miniSprite.width / 2, miniSprite.height / 2);
 
-    // Set the line style and draw the vertical line
-    graphics.lineStyle(2, 0xA020F0);
-    graphics.moveTo(miniEditor.renderer.screen.width / 2, 180);
-    graphics.lineTo(miniEditor.renderer.screen.width / 2, miniEditor.renderer.screen.height - 180);
+      viewport.zoomPercent(zoom, true);
 
-    // Add the Graphics object to the stage
-    miniEditor.stage.addChild(graphics);
+      viewport.addChild(miniSprite);
 
-    miniSprite.addChild(calibrationDots.dot1Viewport);
-    miniSprite.addChild(calibrationDots.dot2Viewport);
-    miniSprite.addChild(calibrationDots.lineViewport);
+      miniEditor.stage.addChild(viewport);
+
+      setTimeout(() => {
+        (Object.keys(dots) as (keyof typeof dots)[]).forEach((key, index) => {
+          var dotsGraphics: Graphics = dotViewportContainer[key];
+          var ratio = miniSprite.width / editor.view.width;
+
+          const x = dots[key].x * ratio - miniSprite.width / 2;
+          const y = dots[key].y * ratio - miniSprite.height / 2;
+
+          // Set the fill style and draw the dot
+          dotsGraphics.beginFill(0xF8008A);
+          dotsGraphics.drawCircle(0, 0, 4);
+          dotsGraphics.endFill();
+
+          // Create a new Text object for the label
+          dotsLabels = new Text(dotLabels[key], {
+            fontSize: 14,
+            fill: 0xF8008A
+          });
+
+          // Set the position of the label
+          dotsLabels.anchor.set(0.5);
+          dotsLabels.position.set(0, - 15);
+
+          dotsGraphics.position.set(x, y);
+
+          dotsGraphics.addChild(dotsLabels);
+
+          // Add the Container object to the stage
+          miniSprite.addChild(dotsGraphics);
+
+          dotViewportContainer[key] = dotsGraphics;
+        });
+
+        (Object.keys(analysisLines) as (keyof typeof analysisLines)[]).forEach((key, index) => {
+          var lineMain: Graphics = analysisLines[key][0] as Graphics;
+          var lineViewport: Graphics = analysisLines[key][1] as Graphics;
+
+          editor.stage.addChild(lineMain);
+          miniSprite.addChild(lineViewport);
+        });
+      }, 300);
+
+      // Create a new Graphics object
+      const graphics = new Graphics();
+
+      // Set the line style and draw the horizontal line
+      graphics.lineStyle(2, 0xA020F0);
+      graphics.moveTo(180, miniEditor.renderer.screen.height / 2);
+      graphics.lineTo(miniEditor.renderer.screen.width - 180, miniEditor.renderer.screen.height / 2);
+
+      // Set the line style and draw the vertical line
+      graphics.lineStyle(2, 0xA020F0);
+      graphics.moveTo(miniEditor.renderer.screen.width / 2, 180);
+      graphics.lineTo(miniEditor.renderer.screen.width / 2, miniEditor.renderer.screen.height - 180);
+
+      // Add the Graphics object to the stage
+      miniEditor.stage.addChild(graphics);
+
+      miniSprite.addChild(calibrationDots.dot1Viewport);
+      miniSprite.addChild(calibrationDots.dot2Viewport);
+      miniSprite.addChild(calibrationDots.lineViewport);
+    }
   }
 
   async function loadPixiJs(pixi: Application<ICanvas>) {
     editor = pixi;
 
-    bootstrapImage();
+    await bootstrapImageInstance();
   }
 
   async function loadMiniPixiJs(pixi: Application<ICanvas>) {
     miniEditor = pixi;
 
-    bootstrapViewport();
+    await bootstrapViewportInstance();
   }
 
   function pixiMoveHandler(x: number, y: number) {
@@ -489,14 +495,13 @@ function App() {
 
     const ratio = miniSprite.width / editor.renderer.width;
 
-    const xX = - x + editor.renderer.width / 2;
-    const yY = - y + editor.renderer.height / 2;
-    miniSprite.position.set(xX * ratio, yY * ratio);
+    const xX = miniSprite.width - x * ratio;
+    const yY = miniSprite.height - y * ratio;
 
-    console.log("RATIO " + ratio);
-    console.log("HX: " + miniSprite.x);
-    console.log("WXS: " + miniSprite.y);
+    miniSprite.position.set(xX, yY);
 
+    console.log("HX: " + miniSprite.x + " XX: " + x);
+    console.log("WXS: " + miniSprite.y + " YY: " + y);
     console.log("pos " + miniEditor.stage.position.x + " y  " + miniEditor.stage.position.y)
   }
 
@@ -592,12 +597,47 @@ function App() {
     graphics.lineTo(x1, y1);
   }
 
-  const [{ loadingState, progressValue, }, setState] = useState({ loadingState: "None", progressValue: 0.1 });
+  interface IReportInputState {
+    loadingState: LoadingStateType;
+    progressValue: number;
+    reportName: string;
+  }
 
-  function handleOnFileInputChange(event: FormEvent<HTMLInputElement>): void {
-    setState({ loadingState: "ToLoad", progressValue: 0.1 });
+  interface ICreateReportResponse {
+    url: string;
+    dots: Dots;
+  }
 
-    filesAdded = ["15.jpg"];
+  const [{ loadingState, progressValue, reportName, }, setState] = useState<IReportInputState>({ loadingState: "None", progressValue: 0.1, reportName: '' });
+
+  async function handleOnFileInputChange(event: FormEvent<HTMLInputElement>): Promise<void> {
+    var formData = new FormData();
+    const file = (event.target as any).files[0];
+    formData.append("image", file);
+    formData.append("name", "helloWorld");
+
+    const baseUrl = "http://http://dentlyai.westeurope.cloudapp.azure.com/api";
+    const axiosInstance = axios.create({
+      baseURL: baseUrl,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+      }
+    });
+
+    setState({ loadingState: "ToLoad", progressValue: 0.1, reportName });
+
+    const { data, status, } = await axiosInstance.post<ICreateReportResponse>('/reports', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      }
+    });
+
+    filesAdded.push(file.name);
+
+    bootstrapImageInstance = await bootstrapImage(data);
+    bootstrapViewportInstance = await bootstrapViewport(data);
+
+    setState({ loadingState: "Loaded", progressValue: 1.0, reportName });
   }
 
   function handleExportFile(event: FormEvent<HTMLElement>): void {
@@ -628,10 +668,10 @@ function App() {
     </div>
   ) : loadingState == "Loading" || loadingState == "ToLoad" ? (
     <div className='columns'>
-    <div className='column is-one-third is-offset-one-third is-main-header'>
-      <ProgressBar className="progress-bar" value={progressValue} />
-      <span>{progressValue < 0.3 ? progressLabels[0] : (progressValue < 0.8 ? progressLabels[1] : progressLabels[2])}</span>
-    </div>
+      <div className='column is-one-third is-offset-one-third is-main-header'>
+        <ProgressBar className="progress-bar" value={progressValue} />
+        <span>{progressValue < 0.3 ? progressLabels[0] : (progressValue < 0.8 ? progressLabels[1] : progressLabels[2])}</span>
+      </div>
     </div>
   ) : (
     <div className="columns">
@@ -640,6 +680,7 @@ function App() {
         <div className="analysis-container">
           <p>Get started with analysis by choosing a image file.</p>
           <FileInput className="app-file-input" text={"Choose file..."} buttonText={"Browse"} large={true} onInputChange={handleOnFileInputChange} />
+          <input value={reportName} />
         </div>
       </div>
     </div>
@@ -647,16 +688,12 @@ function App() {
 
   if (loadingState == "ToLoad") {
     setTimeout(() => {
-      setState({ loadingState: "Loading", progressValue: 0.3 });
+      setState({ loadingState: "Loading", progressValue: 0.3, reportName });
     }, 1200);
 
     setTimeout(() => {
-      setState({ loadingState: "Loading", progressValue: 0.8 });
+      setState({ loadingState: "Loading", progressValue: 0.8, reportName });
     }, 4000);
-
-    setTimeout(() => {
-      setState({ loadingState: "Loaded", progressValue: 1.0 });
-    }, 5200);
   }
 
   // <div className="navbar-brand">
@@ -741,5 +778,4 @@ function App() {
 }
 
 export default App;
-
 
