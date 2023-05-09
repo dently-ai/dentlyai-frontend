@@ -616,7 +616,7 @@ function App() {
     formData.append("image", file);
     formData.append("name", "helloWorld");
 
-    const baseUrl = "http://http://dentlyai.westeurope.cloudapp.azure.com/api";
+    const baseUrl = "http://dentlyai.westeurope.cloudapp.azure.com/api";
     const axiosInstance = axios.create({
       baseURL: baseUrl,
       headers: {
@@ -684,17 +684,7 @@ function App() {
         </div>
       </div>
     </div>
-  )
-
-  if (loadingState == "ToLoad") {
-    setTimeout(() => {
-      setState({ loadingState: "Loading", progressValue: 0.3, reportName });
-    }, 1200);
-
-    setTimeout(() => {
-      setState({ loadingState: "Loading", progressValue: 0.8, reportName });
-    }, 4000);
-  }
+  );
 
   // <div className="navbar-brand">
   //         <a className="navbar-item" href="https://bulma.io">
