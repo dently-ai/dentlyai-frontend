@@ -616,7 +616,7 @@ function App() {
     formData.append("image", file);
     formData.append("name", "helloWorld");
 
-    const baseUrl = "https://dentaldetection.com/api";
+    const baseUrl = "https://app.dentaldetection.com/api";
     const axiosInstance = axios.create({
       baseURL: baseUrl,
       headers: {
