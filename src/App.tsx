@@ -616,7 +616,7 @@ function App() {
     formData.append("image", file);
     formData.append("name", "helloWorld");
 
-    const baseUrl = "http://dentlyai.westeurope.cloudapp.azure.com/api";
+    const baseUrl = "http://dentaldetection.com/api";
     const axiosInstance = axios.create({
       baseURL: baseUrl,
       headers: {
